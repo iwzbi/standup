@@ -1,6 +1,6 @@
 {
   "$schema": "opencode.ai/config.json",
-  "model": "idealab/glm-5.2",
+  "model": "idealab/deepseek-v4.1-flash",
   "provider": {
     "idealab": {
       "npm": "@ai-sdk/openai-compatible",
@@ -10,18 +10,14 @@
         "apiKey": "{file:~/.secrets/idealab.key}"
       },
       "models": {
-        "deepseek-v4-flash-0731": {
+        "deepseek-v4.1-flash": {
           "_launch": true,
-          "name": "deepseek-v4-flash-0731"
+          "name": "deepseek-v4.1-flash"
         },
-        "glm-5.2": {
+        "glm-5.3": {
           "_launch": true,
-          "name": "bailian/glm-5.2"
+          "name": "glm-5.3"
         },
-        "kimi-k3": {
-          "_launch": true,
-          "name": "kimi-k3"
-        }
       }
     }
   },
