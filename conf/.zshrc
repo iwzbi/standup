@@ -5,6 +5,19 @@ if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
 
+# --- Auto-attach a persistent tmux session for interactive remote logins ---
+# Added by Sisyphus 2026-09-20. Replaces the manual "tmux a" after every login.
+# Attaches to the most-recently-used session (exactly like typing `tmux a`),
+# or creates a new "main" session if none exist.
+# Bypass for a single login with:  NOTMUX=1 ssh <host>
+if [[ -o interactive ]] && [[ -t 0 ]] && [[ -z "$TMUX" ]] && [[ -z "$NOTMUX" ]] && command -v tmux >/dev/null; then
+  if tmux list-sessions >/dev/null 2>&1; then
+    exec tmux attach
+  else
+    exec tmux new-session -s main
+  fi
+fi
+
 # Homebrew on Apple Silicon (macOS only). On Linux this guard is false.
 if [[ -x /opt/homebrew/bin/brew ]]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
