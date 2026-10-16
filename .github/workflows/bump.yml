@@ -59,4 +59,6 @@ jobs:
             --title "chore(deps): bump low-risk tools (${date})" \
             --body-file body.md
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT, not GITHUB_TOKEN: PAT-created PRs auto-run test.yml, whereas
+          # GITHUB_TOKEN-created PRs are held as action_required. memory/known-issues.md.
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
