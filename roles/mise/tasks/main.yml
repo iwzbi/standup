@@ -8,16 +8,34 @@
 # Install path uses a block/rescue (D016): mise.run is just a redirect to the
 # GitHub release's install.sh. In a "red zone" network the mise.run redirect
 # tunnel can 403 while github.com is still reachable directly — the rescue
-# fetches the SAME installer via its stable GitHub URL. No version pin or arch
-# detection is needed (the installer handles both), and it lands in
+# fetches the SAME installer via its stable GitHub URL, landing mise in
 # ~/.local/bin/mise exactly like the primary path.
 #
-# The installer's binary fetch is a SEPARATE layer: install.sh defaults
-# to downloading the mise tarball from mise.jdx.dev (same host family as
-# mise.run → also 403'd in a red zone), and only uses github.com when
-# MISE_INSTALL_FROM_GITHUB=1. We set that env on both install tasks so the
-# binary — not just the installer script — is pulled from the reachable
-# github.com.
+# install.sh has THREE network layers, each of which a red zone can 403
+# independently — the block/rescue must cover all three or the fallback is
+# useless:
+#   1. the installer script  → mise.run; the rescue uses github.com (D016).
+#   2. the mise binary tarball → mise.jdx.dev by default; MISE_INSTALL_FROM_GITHUB=1
+#      switches it to github.com.
+#   3. the version index → https://mise.jdx.dev/releases.tsv, fetched by
+#      install.sh UNLESS MISE_VERSION is set (MISE_INSTALL_FROM_GITHUB does NOT
+#      affect it). So we resolve the latest tag from github.com's
+#      /releases/latest redirect and pass it as MISE_VERSION, keeping layer 3
+#      off mise.jdx.dev entirely. If github is unreachable too the resolve
+#      yields empty and behaviour is unchanged (a pre-staged binary still wins
+#      via its `creates:` gate).
+
+- name: Resolve latest mise tag from github.com (skips the mise.jdx.dev release index, D016)
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -sI https://github.com/jdx/mise/releases/latest \
+      | sed -n 's#.*/tag/\(v[0-9][0-9.]*\).*#\1#p'
+  args:
+    executable: /bin/bash
+  register: mise_latest_tag
+  changed_when: false
+  failed_when: false
+  tags: [mise]
 
 - name: Install mise (mise.run, with GitHub-direct fallback)
   block:
@@ -35,6 +53,7 @@
         creates: "{{ ansible_facts.user_dir }}/.local/bin/mise"
       environment:
         MISE_INSTALL_FROM_GITHUB: "1"
+        MISE_VERSION: "{{ mise_latest_tag.stdout | default('') | trim }}"
       tags: [mise]
   rescue:
     - name: Download mise installer (GitHub direct fallback, D016)
@@ -51,6 +70,7 @@
         creates: "{{ ansible_facts.user_dir }}/.local/bin/mise"
       environment:
         MISE_INSTALL_FROM_GITHUB: "1"
+        MISE_VERSION: "{{ mise_latest_tag.stdout | default('') | trim }}"
       tags: [mise]
 
 - name: Check installed node via mise
