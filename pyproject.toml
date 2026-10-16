@@ -3,7 +3,9 @@ name = "standup"
 version = "0.1.0"
 description = "Automated development environment setup via Ansible"
 readme = "README.md"
-requires-python = ">=3.12"
+# <3.15: ansible-core 2.21 is broken on Python 3.15 (it monkey-patches
+# dataclasses._is_type, removed in 3.15). Detail + fix: memory/known-issues.md.
+requires-python = ">=3.12,<3.15"
 dependencies = [
     "ansible",
 ]
