@@ -73,8 +73,8 @@ github_tools:
     dest: user
     auto: true
   - name: dust
-    version: "1.2.5"
-    sha256: "64b16f5c10cc4c25d2eaa144e9d2d44b3ed8f72ee63b3bc0a92c85e21e9e0932"
+    version: "1.2.6"
+    sha256: "14f788707aad217667f6812cf1a9639bf5c861a2ee815d486cffc36051f5e759"
     url: "https://github.com/bootandy/dust/releases/download/v{version}/dust-v{version}-x86_64-unknown-linux-gnu.tar.gz"
     type: archive
     dest: user
@@ -110,8 +110,8 @@ github_tools:
   # where `gh` is NOT in the default apt archives (only 24.04+ has it). On macOS
   # the `packages` role installs it via Homebrew (brew name == "gh").
   - name: gh
-    version: "2.98.0"
-    sha256: "f65a3fa2fa0eb2e97c445ee3f5e087a40aae03b64847f45a8f13805e504535d6"
+    version: "2.103.2"
+    sha256: "30463d8e1fdce73f178f76b0082b7ab0657b0740b87274890e831def647ca979"
     url: "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_amd64.deb"
     type: deb
     dest: user
