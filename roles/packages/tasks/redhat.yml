@@ -3,44 +3,98 @@
 #
 # Package names match Fedora's repos; they differ from Debian's only where the
 # distros disagree: Fedora ships `fd-find` as the `fd` binary and `bat` as
-# `bat` (Debian ships `fdfind`/`batcat`), so the `tools` role's batcat symlink
-# is a no-op here and smoke-test's name fallbacks resolve on the first try.
-# On RHEL/Alma/Rocky a few of these (autojump, fd-find, btop, direnv, pipx)
-# come from EPEL rather than the base repos.
+# `bat`, so the `tools` role's batcat symlink is a no-op here and smoke-test's
+# name fallbacks resolve on the first try.
+#
+# Two tiers, because "every RPM distro has everything" is not true:
+#   core     — in the base repos of Fedora, RHEL, and Amazon Linux 2023.
+#   optional — EPEL on RHEL-likes / SPAL on Amazon Linux; absent from AL2023's
+#              base repos (encountered 2026-10-29, memory/known-issues.md).
+# The optional tier is installed one package at a time so a distro that lacks
+# one (or a host with no extra repo) degrades to a loud warning instead of
+# failing the whole playbook — missing `zsh`/`git`/`curl` still fails hard.
 #
 # `allowerasing` is REQUIRED: Fedora/RHEL base images ship `vim-minimal` and
 # `curl-minimal`, which CONFLICT with `vim`/`curl` — without it dnf depsolves
-# with "problem with installed package curl-minimal" (see memory/known-issues).
-# It only permits erasing to resolve a dependency conflict, so it is a no-op
-# on a system that already has the full packages.
+# with "problem with installed package curl-minimal". It only permits erasing
+# to resolve a dependency conflict, so it is a no-op when there is none.
 #
 # Proxy: dnf has no equivalent of apt's per-host `Acquire::*::Proxy "DIRECT"`
 # directive. dnf resolves packages through libcurl, which honours `no_proxy`,
-# so we set `no_proxy=*` for THIS invocation only (never a persistent config) —
-# the same intent as debian.yml's 99no-proxy, scoped to the dnf call.
+# so we set `no_proxy=*` for THIS block only (never a persistent config) — the
+# same intent as debian.yml's 99no-proxy, scoped to the dnf calls.
 - name: Install dnf packages
-  become: true
-  ansible.builtin.dnf:
-    name:
-      - vim
-      - git
-      - zsh
-      - curl
-      - wget
-      - tmux
-      - autojump
-      - cargo
-      - unzip
-      - ripgrep
-      - fd-find
-      - lsof
-      - bat
-      - jq
-      - btop
-      - direnv
-      - tree  # passage ls/find needs it (D017)
-      - pipx  # uv red-zone fallback when astral.sh is unreachable (D011)
-    state: present
-    allowerasing: true
   environment: "{{ {'no_proxy': '*', 'NO_PROXY': '*'} if packages_proxy_configured | bool else {} }}"
   tags: [packages]
+  block:
+    # RHEL/Alma/Rocky/CentOS: the optional tier is almost entirely EPEL.
+    # Fedora ships it all in its base repos; Amazon Linux uses SPAL instead.
+    - name: Enable EPEL (RHEL-family only)
+      become: true
+      ansible.builtin.dnf:
+        name: epel-release
+        state: present
+        allowerasing: true
+      when: ansible_facts.distribution not in ['Fedora', 'Amazon']
+
+    # Amazon Linux 2023 has no EPEL-compatible repo; SPAL is AWS's EPEL9-derived
+    # replacement. Only exists on AL2023 release 2023.9.20251117+, hence
+    # failed_when: false — an older AL2023 falls through to the warning below.
+    - name: Enable SPAL (Amazon Linux 2023 only)
+      become: true
+      ansible.builtin.dnf:
+        name: spal-release
+        state: present
+        allowerasing: true
+      when: ansible_facts.distribution == 'Amazon'
+      failed_when: false
+
+    - name: Install core dnf packages
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - vim
+          - git
+          - zsh
+          - curl
+          - wget
+          - tmux
+          - unzip
+          - lsof
+          - jq
+          - cargo
+          - tree  # passage ls/find needs it (D017)
+        state: present
+        allowerasing: true
+
+    - name: Install optional dnf packages (EPEL/SPAL; best effort per package)
+      become: true
+      ansible.builtin.dnf:
+        name: "{{ item }}"
+        state: present
+        allowerasing: true
+      loop:
+        - ripgrep
+        - fd-find
+        - bat
+        - btop
+        - direnv
+        - autojump
+        - pipx  # uv red-zone fallback when astral.sh is unreachable (D011)
+      register: packages_dnf_optional
+      ignore_errors: true
+
+    - name: Warn about optional packages this host's repos don't provide
+      ansible.builtin.debug:
+        msg: >-
+          These optional packages are NOT available from this host's configured
+          repos and were skipped:
+          {{ packages_dnf_optional.results | selectattr('failed', 'defined')
+             | selectattr('failed') | map(attribute='item') | join(', ') }}.
+          Fix: on RHEL/Alma/Rocky run `sudo dnf install epel-release`; on
+          Amazon Linux 2023 run `sudo dnf install spal-release` (needs release
+          2023.9.20251117+), then re-run the playbook. Everything else installed
+          normally; see memory/known-issues.md.
+      when: >-
+        packages_dnf_optional.results | selectattr('failed', 'defined')
+        | selectattr('failed') | list | length > 0

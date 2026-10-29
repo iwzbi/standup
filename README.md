@@ -16,9 +16,10 @@ Prerequisites
 - **Linux, Debian family**: Ubuntu 22.04 or 24.04 (or compatible Debian).
   `autojump` needs the `universe` apt component (enabled by default on stock
   Ubuntu).
-- **Linux, RedHat family**: Fedora (dnf). On RHEL/Alma/Rocky a few packages
-  (`autojump`, `fd-find`, `btop`, `direnv`, `pipx`) come from EPEL rather than
-  the base repos.
+- **Linux, RedHat family**: Fedora (dnf), RHEL/Alma/Rocky, and Amazon Linux
+  2023. `redhat.yml` installs `epel-release` on RHEL-likes and `spal-release`
+  on Amazon Linux; anything still unavailable from those repos is skipped with
+  a warning instead of failing the run (see D018).
 - **sudo** is needed only for system packages + `chsh`; all CLI binaries
   install user-local to `~/.local` (no sudo — see D009). `gh` comes from its
   GitHub `.deb` on Debian (so it works on 22.04, where it isn't in the
@@ -54,7 +55,7 @@ What it installs
 | Role | Linux | macOS |
 |------|-------|-------|
 | **homebrew** | — | asserts brew is present (install.sh installs it) |
-| **packages** | apt/dnf: zsh, git, tmux, ripgrep, fd-find, autojump, cargo, vim, curl, wget, unzip, lsof, bat, jq, btop, direnv (list is identical on Debian and RedHat; dispatch is by `os_family` — see `roles/packages/tasks/`) | brew: git, curl, wget, tmux, autojump, ripgrep, fd, bat, jq, btop, direnv, gh |
+| **packages** | apt/dnf: zsh, git, tmux, ripgrep, fd-find, autojump, cargo, vim, curl, wget, unzip, lsof, bat, jq, btop, direnv, tree, pipx (same 18 on Debian and RedHat; RedHat splits into a core tier + an EPEL/SPAL-backed optional tier — see `roles/packages/tasks/`) | brew: git, curl, wget, tmux, autojump, ripgrep, fd, bat, jq, btop, direnv, gh |
 | **tools** | sha256-verified GitHub binaries: delta, zoxide, eza, dust, lazydocker, **yazi, glow, atuin, gh**; uv via install script; batcat→bat symlink (Debian only) | brew: git-delta, zoxide, eza, dust, lazydocker, yazi, glow, atuin, gh |
 | **mise** | `mise.run` + `mise use -g node@22` (replaces nvm) | same (single code path) |
 | **neovim** | nvim v0.11.0 to `~/.local` (SHA256-verified, no sudo) | brew neovim |
@@ -412,8 +413,11 @@ Known items to watch
 Moved to [memory/known-issues.md](memory/known-issues.md). Highlights:
 - **`universe` apt component** (Debian/Ubuntu): `autojump` lives in Ubuntu's
   `universe`; enable it if the `packages` role fails.
-- **EPEL** (RHEL/Alma/Rocky, not Fedora): `autojump`, `fd-find`, `btop`,
-  `direnv` and `pipx` live in EPEL rather than the base repos.
+- **EPEL / SPAL** (non-Fedora RPM): `autojump`, `ripgrep`, `fd-find`, `bat`,
+  `btop`, `direnv`, `pipx` are not in the RHEL base repos or AL2023's base
+  repos. `redhat.yml` installs `epel-release` (RHEL-likes) or `spal-release`
+  (Amazon Linux; needs release `2023.9.20251117`+), then installs that tier
+  one package at a time and warns about any it could not get.
 - **`vim`/`curl` on dnf hosts**: Fedora ships `vim-minimal`/`curl-minimal`,
   which conflict with the full packages. `redhat.yml` installs with
   `allowerasing: true` so dnf swaps them instead of failing depsolve.

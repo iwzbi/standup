@@ -443,10 +443,16 @@ work on dnf hosts without regressing the tested Debian path.
    end-to-end (playbook ×2 + smoke) instead of being untested.
 **Consequence:** Fedora/RHEL (dnf) hosts run the identical playbook; the
 Debian path is byte-for-byte unchanged (same apt tasks, same `.deb` assets,
-same proxy config), so the existing 22.04/24.04 CI legs are unaffected. RHEL
-derivatives need **EPEL** for `autojump`/`fd-find`/`btop`/`direnv`/`pipx`;
-Fedora has them in the base repos. Users who trade `curl-minimal` for `curl`
-will see dnf erase it — that is the intended swap. Non-RedHat/non-Debian
+same proxy config), so the existing 22.04/24.04 CI legs are unaffected.
+"Every RPM distro has everything" is false, so `redhat.yml` splits the list in
+two: a **core** tier present in Fedora/RHEL/AL2023 base repos (hard-fails if
+missing) and an **optional** tier (`ripgrep`, `fd-find`, `bat`, `btop`,
+`direnv`, `autojump`, `pipx`) that lives in EPEL on RHEL-likes and SPAL on
+Amazon Linux. The role enables `epel-release` / `spal-release` itself and
+installs the optional tier one package at a time, warning instead of failing
+when a repo can't supply one (AL2023 before release `2023.9.20251117` has no
+SPAL — memory/known-issues.md, 2026-10-29). Users who trade `curl-minimal` for
+`curl` will see dnf erase it — that is the intended swap. Non-RedHat/non-Debian
 `os_family` values (Suse, Alpine, …) are still unsupported and fail with a
 clear "could not find redhat.yml/debian.yml" from `include_tasks`.
 
