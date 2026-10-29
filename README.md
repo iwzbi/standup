@@ -6,17 +6,24 @@ zsh, Oh My Zsh, Neovim, Node.js (via mise), fzf, lazygit, opencode, and all
 dotfiles — plus a suite of modern CLI tools (bat, eza, delta, zoxide, btop,
 dust, yazi, glow, atuin, etc).
 
-Works on **Ubuntu/Debian servers** and **macOS (Apple Silicon)**. Idempotent:
-safe to re-run on an existing machine — it upgrades/overwrites without
-conflicts (see [memory/decisions.md](memory/decisions.md) for the design).
+Works on **Ubuntu/Debian** and **Fedora/RHEL (dnf)** servers, plus **macOS
+(Apple Silicon)**. Idempotent: safe to re-run on an existing machine — it
+upgrades/overwrites without conflicts (see [memory/decisions.md](memory/decisions.md)
+for the design).
 
 Prerequisites
 -------------
-- **Linux**: Ubuntu 22.04 or 24.04 (or compatible Debian). `autojump` needs
-  the `universe` apt component (enabled by default on stock Ubuntu). `sudo`
-  is needed only for apt system packages + `chsh`; all CLI binaries install
-  user-local to `~/.local` (no sudo — see D009). `gh` is installed from its
-  GitHub `.deb` (not apt) so it works on 22.04, where it isn't in the archives.
+- **Linux, Debian family**: Ubuntu 22.04 or 24.04 (or compatible Debian).
+  `autojump` needs the `universe` apt component (enabled by default on stock
+  Ubuntu).
+- **Linux, RedHat family**: Fedora (dnf). On RHEL/Alma/Rocky a few packages
+  (`autojump`, `fd-find`, `btop`, `direnv`, `pipx`) come from EPEL rather than
+  the base repos.
+- **sudo** is needed only for system packages + `chsh`; all CLI binaries
+  install user-local to `~/.local` (no sudo — see D009). `gh` comes from its
+  GitHub `.deb` on Debian (so it works on 22.04, where it isn't in the
+  archives) and from the upstream tarball on dnf hosts, which have no
+  `dpkg-deb` (D018).
 - **macOS**: Apple Silicon (arm64). `install.sh` installs Homebrew on first
   run (the only step that needs your password; once per machine).
 - Nothing else — `install.sh` bootstraps `uv` (which installs Ansible) itself.
@@ -47,8 +54,8 @@ What it installs
 | Role | Linux | macOS |
 |------|-------|-------|
 | **homebrew** | — | asserts brew is present (install.sh installs it) |
-| **packages** | apt: zsh, git, tmux, ripgrep, fd-find, autojump, cargo, vim, curl, wget, unzip, lsof, bat, jq, btop, direnv | brew: git, curl, wget, tmux, autojump, ripgrep, fd, bat, jq, btop, direnv, gh |
-| **tools** | sha256-verified GitHub binaries: delta, zoxide, eza, dust, lazydocker, **yazi, glow, atuin, gh**; uv via install script; batcat→bat symlink | brew: git-delta, zoxide, eza, dust, lazydocker, yazi, glow, atuin, gh |
+| **packages** | apt/dnf: zsh, git, tmux, ripgrep, fd-find, autojump, cargo, vim, curl, wget, unzip, lsof, bat, jq, btop, direnv (list is identical on Debian and RedHat; dispatch is by `os_family` — see `roles/packages/tasks/`) | brew: git, curl, wget, tmux, autojump, ripgrep, fd, bat, jq, btop, direnv, gh |
+| **tools** | sha256-verified GitHub binaries: delta, zoxide, eza, dust, lazydocker, **yazi, glow, atuin, gh**; uv via install script; batcat→bat symlink (Debian only) | brew: git-delta, zoxide, eza, dust, lazydocker, yazi, glow, atuin, gh |
 | **mise** | `mise.run` + `mise use -g node@22` (replaces nvm) | same (single code path) |
 | **neovim** | nvim v0.11.0 to `~/.local` (SHA256-verified, no sudo) | brew neovim |
 | **ohmyzsh** | Oh My Zsh + Powerlevel10k + syntax-highlighting + autosuggestions (idempotent git update) | same |
@@ -280,11 +287,13 @@ you hit a setup issue on any machine, add a row to
 
 Sandbox Testing (Docker, Linux)
 -------------------------------
-The `Dockerfile` builds an Ubuntu 24.04 image with Ansible pre-installed.
-The playbook runs at container time so each test starts from a clean machine.
+The `Dockerfile` bootstraps whichever package manager the base image ships —
+apt (Ubuntu/Debian) or dnf (Fedora) — with Ansible pre-installed. The playbook
+runs at container time so each test starts from a clean machine.
 
 ```bash
-docker build -t standup-test .
+docker build -t standup-test .                                  # ubuntu:24.04
+docker build --build-arg BASE_IMAGE=fedora:44 -t standup-test . # Fedora (dnf)
 docker run --rm -it standup-test
 # Inside the container (cwd is /opt/standup, ansible on PATH):
 ansible-playbook configme.yaml --syntax-check
@@ -298,21 +307,25 @@ the command line (it would make all tasks run as root, installing
 user-level tools like mise/fzf/opencode into `/root/` instead of `~`).
 
 CI runs `ansible-lint` + `--syntax-check`, plus the playbook **twice** on
-both `ubuntu-latest` (Docker) and `macos-latest` (`./install.sh`) — the
-second run must not fail, which proves idempotency on both platforms.
+`ubuntu-latest` (Docker, Ubuntu 22.04 + 24.04 + Fedora matrices) and
+`macos-latest` (`./install.sh`) — the second run must not fail, which proves
+idempotency on all of them.
 
 ### Behind a proxy
-If your network requires a proxy for GitHub/uv but the proxy 403s on
-Ubuntu apt archives (common in corporate environments), build with:
+If your network requires a proxy for GitHub/uv but the proxy 403s on distro
+archives (common in corporate environments), build with:
 ```bash
 docker build \
   --build-arg http_proxy=http://PROXY:PORT \
   --build-arg https_proxy=http://PROXY:PORT \
   -t standup-test .
 ```
-The Dockerfile sets `Acquire::http::Proxy "DIRECT"` so apt bypasses the
-proxy and connects directly to Ubuntu mirrors, while uv/git/curl still
-use the proxy env vars.
+The Dockerfile clears the proxy for the package-manager call only: apt gets
+`Acquire::http::Proxy "DIRECT"`, and dnf runs with `no_proxy=*` (dnf resolves
+through libcurl, which honours `no_proxy`). Both connect straight to the
+distro mirrors while uv/git/curl still use the proxy env vars. The `packages`
+role does the same at playbook time — see `roles/packages/tasks/debian.yml`
+and `redhat.yml`.
 
 When running the container, pass proxy env vars and configure git:
 ```bash
@@ -335,8 +348,9 @@ failing (see [memory/decisions.md D011](memory/decisions.md#d011)):
 
 - **macOS** → `brew install uv` (uv is in Homebrew core; brew is ensured by
   `install.sh` on a fresh Mac).
-- **Linux** → `pipx install uv` (installs pipx via `sudo apt-get install -y
-  pipx` first if missing). Requires **PyPI to be reachable**.
+- **Linux** → `pipx install uv` (installs pipx via `sudo dnf install -y pipx`
+  or `sudo apt-get install -y pipx` first if missing). Requires **PyPI to be
+  reachable**.
 
 Both land uv in `~/.local/bin`, so the rest of the setup is identical. If
 astral.sh **and** PyPI are both unreachable (fully air-gapped), pre-stage the
@@ -396,15 +410,21 @@ pre-staged binary is not auto-detected — configure a mirror or skip the role.
 Known items to watch
 --------------------
 Moved to [memory/known-issues.md](memory/known-issues.md). Highlights:
-- **`universe` apt component** (Linux): `autojump` lives in Ubuntu's
+- **`universe` apt component** (Debian/Ubuntu): `autojump` lives in Ubuntu's
   `universe`; enable it if the `packages` role fails.
+- **EPEL** (RHEL/Alma/Rocky, not Fedora): `autojump`, `fd-find`, `btop`,
+  `direnv` and `pipx` live in EPEL rather than the base repos.
+- **`vim`/`curl` on dnf hosts**: Fedora ships `vim-minimal`/`curl-minimal`,
+  which conflict with the full packages. `redhat.yml` installs with
+  `allowerasing: true` so dnf swaps them instead of failing depsolve.
 - **astrovim `force: yes`**: re-running overwrites local `~/.config/nvim`
   edits — the repo is authoritative. Fork MyAstroNvim if you keep local
   nvim tweaks (see [D002](memory/decisions.md#d002)).
 - **atuin takes Ctrl-R**: fzf's Ctrl-R is replaced by atuin (fzf's Ctrl-T
   and Alt-C still work) — see [D008](memory/decisions.md#d008).
-- **bat on Ubuntu**: the `bat` apt package installs the binary as
-  `batcat`; the `tools` role symlinks `/usr/local/bin/bat -> /usr/bin/batcat`.
+- **bat on Debian/Ubuntu**: the `bat` apt package installs the binary as
+  `batcat`; the `tools` role symlinks `~/.local/bin/bat -> /usr/bin/batcat`
+  (Fedora ships it as `bat`, so the symlink is a no-op there).
 - **migrating from nvm with a `~/.npmrc` prefix** (Linux/macOS): a leftover
   `prefix=${HOME}/.npm-global` line (the sudo-free-global pattern from the
   nvm/system-node era) diverts `mise exec -- npm -g` installs — e.g.

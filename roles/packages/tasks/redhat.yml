@@ -1,0 +1,46 @@
+# Fedora/RHEL (dnf) packages — the redhat.yml counterpart of debian.yml.
+# The set_fact for `packages_proxy_configured` lives in linux.yml (shared).
+#
+# Package names match Fedora's repos; they differ from Debian's only where the
+# distros disagree: Fedora ships `fd-find` as the `fd` binary and `bat` as
+# `bat` (Debian ships `fdfind`/`batcat`), so the `tools` role's batcat symlink
+# is a no-op here and smoke-test's name fallbacks resolve on the first try.
+# On RHEL/Alma/Rocky a few of these (autojump, fd-find, btop, direnv, pipx)
+# come from EPEL rather than the base repos.
+#
+# `allowerasing` is REQUIRED: Fedora/RHEL base images ship `vim-minimal` and
+# `curl-minimal`, which CONFLICT with `vim`/`curl` — without it dnf depsolves
+# with "problem with installed package curl-minimal" (see memory/known-issues).
+# It only permits erasing to resolve a dependency conflict, so it is a no-op
+# on a system that already has the full packages.
+#
+# Proxy: dnf has no equivalent of apt's per-host `Acquire::*::Proxy "DIRECT"`
+# directive. dnf resolves packages through libcurl, which honours `no_proxy`,
+# so we set `no_proxy=*` for THIS invocation only (never a persistent config) —
+# the same intent as debian.yml's 99no-proxy, scoped to the dnf call.
+- name: Install dnf packages
+  become: true
+  ansible.builtin.dnf:
+    name:
+      - vim
+      - git
+      - zsh
+      - curl
+      - wget
+      - tmux
+      - autojump
+      - cargo
+      - unzip
+      - ripgrep
+      - fd-find
+      - lsof
+      - bat
+      - jq
+      - btop
+      - direnv
+      - tree  # passage ls/find needs it (D017)
+      - pipx  # uv red-zone fallback when astral.sh is unreachable (D011)
+    state: present
+    allowerasing: true
+  environment: "{{ {'no_proxy': '*', 'NO_PROXY': '*'} if packages_proxy_configured | bool else {} }}"
+  tags: [packages]

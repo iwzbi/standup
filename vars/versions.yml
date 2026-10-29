@@ -42,6 +42,10 @@ lazygit_sha256: "84682f4ad5a449d0a3ffbc8332200fe8651aee9dd91dcd8d87197ba6c2450db
 #   sha256    of the linux x86_64 asset (verified by get_url checksum)
 #   url       release URL with {version} placeholder
 #   type      deb | archive
+#   alt       optional {url, sha256, type} used INSTEAD of url/sha256/type on
+#             RedHat-family hosts (Fedora/RHEL, dnf), which have no dpkg-deb to
+#             extract a .deb. Always an archive there. Only needed by deb-typed
+#             tools — see memory/decisions.md D018.
 #   dest      user (~/.local/bin, no sudo) | system (/usr/local/bin, sudo)
 #   binaries  optional list of binaries to install from the archive (default [name])
 #   brew      optional Homebrew formula name if it differs from `name`
@@ -56,6 +60,11 @@ github_tools:
     sha256: "ea4f0222950ee750a3d38dd80d03bce4cee07a3f63928fc47548383bcaf23093"
     url: "https://github.com/dandavison/delta/releases/download/{version}/git-delta_{version}_amd64.deb"
     type: deb
+    # dnf hosts have no dpkg-deb: use the upstream gnu tarball instead.
+    alt:
+      url: "https://github.com/dandavison/delta/releases/download/{version}/delta-{version}-x86_64-unknown-linux-gnu.tar.gz"
+      sha256: "8e695c5f586a8c53d6c3b01be0b4a422ed218bfed2a56191caebe373a1c18ab2"
+      type: archive
     dest: user
     brew: git-delta
   - name: zoxide
@@ -108,12 +117,17 @@ github_tools:
     dest: user
   # gh (GitHub CLI): installed from its .deb so it works on Ubuntu 22.04 too,
   # where `gh` is NOT in the default apt archives (only 24.04+ has it). On macOS
-  # the `packages` role installs it via Homebrew (brew name == "gh").
+  # the `packages` role installs it via Homebrew (brew name == "gh"); on dnf
+  # hosts the upstream tarball is used instead (no dpkg-deb — D018).
   - name: gh
     version: "2.103.2"
     sha256: "30463d8e1fdce73f178f76b0082b7ab0657b0740b87274890e831def647ca979"
     url: "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_amd64.deb"
     type: deb
+    alt:
+      url: "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_amd64.tar.gz"
+      sha256: "62ccf747115ddc61237efffdde66a3c8f70ba249433dc64f70801089b59c59c8"
+      type: archive
     dest: user
     brew: gh
     auto: true

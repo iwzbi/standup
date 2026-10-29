@@ -8,7 +8,9 @@ Usage:
 
 Supports two kinds of pinned tool in vars/versions.yml:
   - github_tools entries (delta, zoxide, eza, ..., gh) — has a `url` field with
-    a {version} placeholder; the block is rewritten in place.
+    a {version} placeholder; the block is rewritten in place. An optional `alt`
+    block carries a second url/sha256 pair used on dnf hosts (D018); when
+    present, BOTH assets are downloaded and BOTH sha256 lines are rewritten.
   - standalone tools (neovim, lazygit) — flat <name>_version / <name>_sha256
     keys with a hardcoded URL template below.
 
@@ -100,21 +102,52 @@ def get_latest_release(url_template: str) -> str:
     return tag[1:] if tag.startswith("v") else tag  # strip a single leading 'v'
 
 
-def update_github_block(tool_name: str, new_version: str, new_sha256: str) -> None:
+def update_github_block(tool_name: str, new_version: str, new_sha256s: list[str]) -> None:
+    """Rewrite `version:` and every `sha256:` line in the tool's block.
+
+    `new_sha256s` is ordered as the lines appear: the primary asset first,
+    then any `alt` assets (D018). The count must match the block's sha256
+    lines exactly — one downloaded asset per pinned hash — otherwise a line
+    would silently keep its stale value.
+    """
     text = VERSIONS_FILE.read_text()
+    # Entries are indented list items ("  - name: x"); bound the block at the
+    # NEXT indented entry (or EOF) so a tool's block never spills into the
+    # entries that follow it — otherwise every sha256 line from this tool to
+    # the end of github_tools would be rewritten.
     pattern = re.compile(
-        r"(- name:\s*" + re.escape(tool_name) + r"\b.*?)(?=\n- name:|\Z)",
+        r"([ ]*- name:\s*" + re.escape(tool_name) + r"\b.*?)(?=\n[ ]*- name:|\Z)",
         re.DOTALL,
     )
     match = pattern.search(text)
     if not match:
         raise ValueError(f"github_tools entry '{tool_name}' not found")
     block = match.group(1)
-    new_block = re.sub(r'version:\s*"[^"]*"', f'version: "{new_version}"', block, count=1)
-    new_block = re.sub(r'sha256:\s*"[^"]*"', f'sha256: "{new_sha256}"', new_block, count=1)
-    if new_block == block:
+    # The slice can end with the NEXT entry's leading comment block (comments
+    # sit between this entry's last field and the next `- name:`). Keep those
+    # out of the rewritten region so a comment that mentions `version:` or
+    # `sha256:` can never be rewritten as if it were a pinned field.
+    trailing = re.search(r"(?:\n[ ]*#.*)+$", block)
+    tail = trailing.group(0) if trailing else ""
+    core = block[: len(block) - len(tail)]
+
+    sha_lines = re.findall(r'sha256:\s*"[^"]*"', core)
+    if len(sha_lines) != len(new_sha256s):
+        raise ValueError(
+            f"'{tool_name}' pins {len(sha_lines)} sha256 line(s) but "
+            f"{len(new_sha256s)} asset(s) were hashed"
+        )
+    new_core = re.sub(r'version:\s*"[^"]*"', f'version: "{new_version}"', core, count=1)
+
+    pending = list(new_sha256s)
+
+    def _next_sha(_match: re.Match[str]) -> str:
+        return f'sha256: "{pending.pop(0)}"'
+
+    new_core = re.sub(r'sha256:\s*"[^"]*"', _next_sha, new_core)
+    if new_core == core:
         raise ValueError(f"no changes made (check that '{tool_name}' has version/sha256 lines)")
-    VERSIONS_FILE.write_text(text.replace(block, new_block, 1))
+    VERSIONS_FILE.write_text(text.replace(block, new_core + tail, 1))
 
 
 def update_standalone(tool_name: str, new_version: str, new_sha256: str) -> None:
@@ -137,15 +170,25 @@ def tool_url(tool_name: str, github_tools: list[dict]) -> str:
     raise KeyError(tool_name)
 
 
+def asset_urls(gh: dict, version: str) -> list[str]:
+    """Every release asset URL for `gh` at `version`: primary first, then `alt`."""
+    urls = [render_url(gh["url"], version)]
+    if gh.get("alt"):
+        urls.append(render_url(gh["alt"]["url"], version))
+    return urls
+
+
 def bump_tool(tool_name: str, new_version: str, github_tools: list[dict]) -> None:
-    """Download the asset for new_version, compute sha256, write to versions.yml."""
+    """Download the asset(s) for new_version, compute sha256, write to versions.yml."""
     gh = next((t for t in github_tools if t["name"] == tool_name), None)
     if gh is not None:
-        url = render_url(gh["url"], new_version)
-        print(f"  downloading {url}")
-        sha = download_and_hash(url)
-        update_github_block(tool_name, new_version, sha)
-        print(f"  updated: {tool_name} -> {new_version} (sha256 {sha[:12]}…)")
+        urls = asset_urls(gh, new_version)
+        shas = []
+        for url in urls:
+            print(f"  downloading {url}")
+            shas.append(download_and_hash(url))
+        update_github_block(tool_name, new_version, shas)
+        print(f"  updated: {tool_name} -> {new_version} ({len(shas)} asset(s), sha256 {shas[0][:12]}…)")
         return
     if tool_name in STANDALONE_TOOLS:
         url = render_url(STANDALONE_TOOLS[tool_name]["url"], new_version)
@@ -171,7 +214,7 @@ def latest_all() -> int:
         print("no tools marked auto: true; nothing to bump")
         return 0
     # phase 1: discover + download + hash (no writes yet)
-    updates: list[tuple[str, str, str]] = []  # (name, new_version, sha256)
+    updates: list[tuple[str, str, list[str]]] = []  # (name, new_version, [sha256, ...])
     for tool in auto_tools:
         name, current = tool["name"], tool["version"]
         latest = get_latest_release(tool["url"])
@@ -179,12 +222,14 @@ def latest_all() -> int:
             print(f"  {name}: already at {current} (latest)")
             continue
         print(f"  {name}: {current} -> {latest}, downloading…")
-        sha = download_and_hash(render_url(tool["url"], latest))
-        updates.append((name, latest, sha))
-        print(f"    sha256 {sha[:12]}…")
+        shas = []
+        for url in asset_urls(tool, latest):
+            shas.append(download_and_hash(url))
+            print(f"    {url.rsplit('/', 1)[-1]} sha256 {shas[-1][:12]}…")
+        updates.append((name, latest, shas))
     # phase 2: write all (only if phase 1 fully succeeded)
-    for name, version, sha in updates:
-        update_github_block(name, version, sha)
+    for name, version, shas in updates:
+        update_github_block(name, version, shas)
     print(f"\nbumped {len(updates)} tool(s)")
     return len(updates)
 

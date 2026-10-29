@@ -104,7 +104,8 @@ yazi, glow, atuin, gh, lazygit) and neovim install **user-local** under
 `~/.local/bin` / `~/.local/...` — no sudo. `.deb` assets (delta, gh) are
 extracted with `dpkg-deb -x` (NOT `apt install`) so we get the binary without
 root or system-package metadata. The batcat→bat symlink lives in
-`~/.local/bin`, not `/usr/local/bin`.
+`~/.local/bin`, not `/usr/local/bin`. (On RedHat-family hosts, which have no
+`dpkg-deb`, those tools use their upstream tarball instead — see D018.)
 **Consequence:** The only `become: true` tasks left are: the `packages` role
 (apt system packages + the `/etc/apt/apt.conf.d/99no-proxy` config — apt
 config fundamentally needs root) and the `shell` role (`chsh` needs root to
@@ -138,7 +139,7 @@ break that smoke misses. The low-risk 6 have stable interfaces and are
 empirically safe to float (the user's Mac already floats all of them via brew
 with no issues — D001).
 **Consequence:** The PR's own CI (`test.yml` on: pull_request) re-runs the full
-22.04/24.04/macos playbook×2 + smoke matrix on the bumped versions. Merge only
+ubuntu/fedora/macos playbook×2 + smoke matrix on the bumped versions. Merge only
 if green. The weekly job itself does NOT run tests (no duplication — the PR
 triggers them). If a bumped version breaks CI, the PR stays red: investigate,
 don't merge.
@@ -393,3 +394,59 @@ in CI (the script exits 1 before any subcommand when `~/.passage/identities` is
 absent), so `bin/smoke-test.sh` checks passage via `command -v` instead.
 age is manually bumped (no `auto:`) — stable crypto tool, rarely needing
 updates.
+
+## D018 — dnf (Fedora/RHEL) support alongside apt
+
+**Date:** 2026-10-29
+**Context:** Every Linux step assumed Debian/Ubuntu. The `packages` role only
+read `ansible_facts.system` (Linux vs Darwin) and always loaded an apt-only
+`linux.yml`; `install.sh`'s uv fallback ran `sudo apt-get`; and the
+`github_binary` helper extracted `.deb` assets (delta, gh) with `dpkg-deb`,
+which does not exist on RPM systems. The Dockerfile/CI only ever built
+Ubuntu, so none of this was exercised. The ask was to make the same playbook
+work on dnf hosts without regressing the tested Debian path.
+**Decision:**
+1. **Package dispatch by `os_family`, not `system`.** `packages/tasks/linux.yml`
+   now only computes the shared `packages_proxy_configured` fact and then
+   `include_tasks: "{{ ansible_facts.os_family | lower }}.yml"` →
+   `debian.yml` (apt, behaviour unchanged) or `redhat.yml` (dnf). A new distro
+   is one file, not an edit. Package names are identical on both sides
+   (`fd-find` ships the `fd` binary and `bat` ships `bat` on Fedora, unlike
+   Debian's `fdfind`/`batcat`), so the lists stay in sync.
+2. **dnf depsolve needs `allowerasing`.** Fedora/RHEL base images ship
+   `vim-minimal`/`curl-minimal`, which CONFLICT with `vim`/`curl`; without
+   `allowerasing: true` the whole transaction fails ("problem with installed
+   package curl-minimal"). `redhat.yml` therefore uses `ansible.builtin.dnf`
+   (not `package`, which cannot express the option) with `allowerasing: true`.
+   ansible's dnf action plugin picks the dnf4 or dnf5 backend from the
+   `pkg_mgr` fact, so Fedora 41+ (dnf5) and RHEL 9 (dnf4) both work.
+3. **Proxy bypass for dnf is an env var, not a config file.** apt's
+   `/etc/apt/apt.conf.d/99no-proxy` has no dnf equivalent (`dnf.conf` cannot
+   express "no proxy"). dnf resolves through libcurl, which honours
+   `no_proxy`, so `redhat.yml` sets `no_proxy=*`/`NO_PROXY=*` on the install
+   task only when a proxy env var is present — same intent as the apt snippet,
+   scoped to the call, never persisted.
+4. **`.deb` tools fall back to a tarball on non-Debian.** `dpkg-deb` is
+   Debian-only. Rather than install dpkg on Fedora (unavailable on RHEL) or
+   hand-roll ar/zstd extraction, `vars/versions.yml` gains an optional
+   `alt: {url, sha256, type}` per tool, used when
+   `ansible_facts.os_family != 'Debian'`. Only delta and gh define one (both
+   for the upstream `linux-gnu`/`linux_amd64` tarball). Tools without `alt`
+   are already archives and are untouched. `bin/bump-version.py` downloads and
+   rewrites EVERY asset a tool pins, so an `alt` hash can never go stale; it
+   also fails loudly if the hash count and asset count disagree.
+5. **`install.sh`** detects `dnf` before `apt-get` for the pipx (uv red-zone)
+   fallback (D011), and errors clearly if neither exists.
+6. **Dockerfile + CI** take any base image and bootstrap apt or dnf; the
+   `test-linux` matrix now carries full image names
+   (`ubuntu:24.04`, `ubuntu:22.04`, `fedora:44`) so the dnf path is tested
+   end-to-end (playbook ×2 + smoke) instead of being untested.
+**Consequence:** Fedora/RHEL (dnf) hosts run the identical playbook; the
+Debian path is byte-for-byte unchanged (same apt tasks, same `.deb` assets,
+same proxy config), so the existing 22.04/24.04 CI legs are unaffected. RHEL
+derivatives need **EPEL** for `autojump`/`fd-find`/`btop`/`direnv`/`pipx`;
+Fedora has them in the base repos. Users who trade `curl-minimal` for `curl`
+will see dnf erase it — that is the intended swap. Non-RedHat/non-Debian
+`os_family` values (Suse, Alpine, …) are still unsupported and fail with a
+clear "could not find redhat.yml/debian.yml" from `include_tasks`.
+

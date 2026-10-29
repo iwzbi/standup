@@ -17,20 +17,26 @@ jobs:
 
   # Linux: build the Docker sandbox and run the playbook twice inside it.
   # The second run must not fail — that proves idempotency (changed is fine;
-  # failed is not). Matrix covers Ubuntu 22.04 and 24.04 (the Dockerfile takes
-  # a BASE_IMAGE build-arg); 22.04 catches e.g. packages absent from jammy.
+  # failed is not). Matrix covers Ubuntu 22.04/24.04 (apt) and Fedora (dnf) —
+  # 22.04 catches e.g. packages absent from jammy, Fedora exercises the whole
+  # redhat.yml / dnf / `alt`-asset path. Entries are FULL image names so the
+  # matrix is not locked to the `ubuntu:` prefix.
   test-linux:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        base: ["24.04", "22.04"]
+        image: ["ubuntu:24.04", "ubuntu:22.04", "fedora:44"]
     steps:
       - uses: actions/checkout@v4
-      - run: docker build --build-arg BASE_IMAGE=ubuntu:${{ matrix.base }} -t envconfig-test-${{ matrix.base }} .
+      - name: Build sandbox image
+        run: |
+          TAG="envconfig-test-$(echo '${{ matrix.image }}' | tr ':/' '--')"
+          docker build --build-arg BASE_IMAGE='${{ matrix.image }}' -t "$TAG" .
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
       - name: Run playbook twice + smoke-test installed tools
         run: |
-          docker run --rm envconfig-test-${{ matrix.base }} bash -lc '
+          docker run --rm "$TAG" bash -lc '
             ansible-playbook configme.yaml &&
             echo "=== second run: idempotency check ===" &&
             ansible-playbook configme.yaml &&

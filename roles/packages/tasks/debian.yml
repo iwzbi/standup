@@ -1,0 +1,60 @@
+# Debian/Ubuntu apt packages. `autojump` lives in the `universe` component
+# (enabled by default on stock Ubuntu 22.04 and 24.04). `gh` is NOT here — it
+# is absent from 22.04's default archives, so it is installed from its GitHub
+# .deb by the `tools` role (see vars/versions.yml :: github_tools).
+#
+# Proxy bypass: corporate proxies often 403 on Ubuntu apt mirrors. When a
+# proxy is set in the environment we drop a 99no-proxy apt.conf.d snippet so
+# apt ignores it and goes direct to the mirrors (usually reachable even when
+# the proxy is needed for GitHub/PyPI). When NO proxy is set we REMOVE any
+# stale 99no-proxy so a machine that previously used a proxy returns to normal
+# apt proxy resolution (never overrides a user's intentional apt-proxy config).
+# Split into set_fact + conditional copy + conditional file: a single templated
+# `copy` with `content:` renders empty when no proxy is set, and the copy
+# module rejects empty content ("src (or content) is required"). The set_fact
+# itself lives in linux.yml (shared with redhat.yml).
+- name: Bypass proxy for apt when a proxy is configured
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/99no-proxy
+    content: |
+      Acquire::http::Proxy "DIRECT";
+      Acquire::https::Proxy "DIRECT";
+    mode: "0644"
+    owner: root
+    group: root
+  when: packages_proxy_configured | bool
+  tags: [packages]
+
+- name: Remove apt proxy bypass when no proxy is configured
+  become: true
+  ansible.builtin.file:
+    path: /etc/apt/apt.conf.d/99no-proxy
+    state: absent
+  when: not (packages_proxy_configured | bool)
+  tags: [packages]
+
+- name: Install apt packages
+  become: true
+  ansible.builtin.package:
+    name:
+      - vim
+      - git
+      - zsh
+      - curl
+      - wget
+      - tmux
+      - autojump
+      - cargo
+      - unzip
+      - ripgrep
+      - fd-find
+      - lsof
+      - bat
+      - jq
+      - btop
+      - direnv
+      - tree  # passage ls/find needs it (D017)
+      - pipx  # uv red-zone fallback when astral.sh is unreachable (D011)
+    state: present
+  tags: [packages]

@@ -58,8 +58,8 @@ cd "$REPO_DIR"
 # --- ensure uv (Python package manager; installs ansible) ---
 # Astral's install script is the primary path. In a restricted network ("red
 # zone") where astral.sh is unreachable, fall back per OS: Homebrew on macOS
-# (brew is already ensured above), pipx on Linux (apt installs pipx, which is
-# also a system package in the `packages` role; needs PyPI reachable). Both
+# (brew is already ensured above), pipx on Linux (dnf/apt installs pipx, which
+# is also a system package in the `packages` role; needs PyPI reachable). Both
 # land uv in ~/.local/bin, so PATH and the `tools` role's stat-gate stay
 # consistent. See memory/decisions.md D011.
 if ! command -v uv >/dev/null 2>&1; then
@@ -74,7 +74,14 @@ if ! command -v uv >/dev/null 2>&1; then
         ;;
       Linux)
         if ! command -v pipx >/dev/null 2>&1; then
-          sudo apt-get install -y pipx
+          if command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y pipx
+          elif command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get install -y pipx
+          else
+            warn "no supported package manager found (need dnf or apt-get) for pipx"
+            exit 1
+          fi
         fi
         pipx install uv
         ;;

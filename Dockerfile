@@ -1,21 +1,46 @@
-# BASE_IMAGE lets CI build against both 22.04 and 24.04 from the same
+# BASE_IMAGE lets CI build against Ubuntu 22.04/24.04 AND Fedora from the same
 # Dockerfile (see .github/workflows/test.yml). Defaults to 24.04 for local use.
 ARG BASE_IMAGE=ubuntu:24.04
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# The stock ubuntu images (22.04 and 24.04) include the 'universe' component
-# (Components: main universe restricted multiverse in ubuntu.sources),
-# so 'autojump' from the 'packages' role is available without extra config.
-# Bypass any proxy env vars for apt (the proxy may 403 on Ubuntu archives).
-RUN echo 'Acquire::http::Proxy "DIRECT";' > /etc/apt/apt.conf.d/99no-proxy \
-  && echo 'Acquire::https::Proxy "DIRECT";' >> /etc/apt/apt.conf.d/99no-proxy \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends \
-        python3 \
-        sudo git curl wget ca-certificates openssh-client \
-  && rm -rf /var/lib/apt/lists/*
+# Bootstrap the base image's OWN package manager — apt (Debian/Ubuntu) or dnf
+# (Fedora/RHEL) — so one Dockerfile builds both.
+#
+# apt: the stock ubuntu images (22.04 and 24.04) include the 'universe'
+#   component, so 'autojump' from the 'packages' role is available without
+#   extra config.
+# dnf: a bare Fedora image also needs tar/findutils (Debian marks them
+#   essential; the `tools`/`github_binary` roles use them to unpack release
+#   assets) plus shadow-utils/util-linux for `useradd`/`runuser`/`chsh`.
+#   `curl` is installed only when missing: Fedora ships `curl-minimal`, which
+#   CONFLICTS with the full `curl` package.
+#
+# Proxy bypass: corporate proxies often 403 on distro archives. apt takes a
+# per-host DIRECT directive; dnf resolves through libcurl, which honours
+# no_proxy — so we clear the proxy env for that one dnf call instead (uv/git/
+# curl keep using the proxy env vars as before).
+RUN set -eu; \
+    if command -v apt-get >/dev/null 2>&1; then \
+      echo 'Acquire::http::Proxy "DIRECT";' > /etc/apt/apt.conf.d/99no-proxy; \
+      echo 'Acquire::https::Proxy "DIRECT";' >> /etc/apt/apt.conf.d/99no-proxy; \
+      apt-get update; \
+      apt-get install -y --no-install-recommends \
+            python3 sudo git curl wget ca-certificates openssh-client; \
+      rm -rf /var/lib/apt/lists/*; \
+    elif command -v dnf >/dev/null 2>&1; then \
+      no_proxy='*' NO_PROXY='*' dnf -y install \
+            python3 sudo git wget ca-certificates openssh-clients \
+            shadow-utils util-linux findutils tar gzip; \
+      if ! command -v curl >/dev/null 2>&1; then \
+        no_proxy='*' NO_PROXY='*' dnf -y install curl; \
+      fi; \
+      dnf clean all; \
+    else \
+      echo "unsupported BASE_IMAGE: need apt-get or dnf" >&2; \
+      exit 1; \
+    fi
 
 # Non-root ansible user with passwordless sudo. This mirrors a real host where
 # become: yes is needed, so the playbook's become paths actually get exercised.

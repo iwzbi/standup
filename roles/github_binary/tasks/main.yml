@@ -5,6 +5,9 @@
 # .deb assets are extracted with `dpkg-deb -x` (NOT apt) so NO sudo is needed
 # even for deb-based tools (delta, gh) — we only need the binary, not the
 # system package metadata. See memory/decisions.md D009 (sudo minimization).
+# dpkg-deb only exists on Debian-family hosts: on RedHat-family hosts (dnf)
+# a deb-typed tool falls back to the tool's `alt` tarball asset instead — see
+# memory/decisions.md D018.
 #
 # Idempotent: the caller gates this on a version check, so it only runs when
 # the tool is missing or at a different version. get_url's checksum makes the
@@ -29,6 +32,25 @@
     github_binary_extract: "/tmp/{{ github_binary_tool.name }}-{{ github_binary_tool.version }}_extract"
   tags: always
 
+# Pick the release asset for this host family. Debian keeps the primary `url`
+# (a .deb, extracted with dpkg-deb below). RedHat has no dpkg-deb, so a tool
+# that carries an `alt` block uses that instead (always an archive — see
+# vars/versions.yml). Tools with no `alt` are already archives and are
+# unaffected, which is why only delta and gh define one (D018).
+- name: Resolve release asset ({{ github_binary_tool.name }})
+  ansible.builtin.set_fact:
+    github_binary_asset: >-
+      {{
+        github_binary_tool.alt
+        if (github_binary_tool.alt is defined and ansible_facts.os_family != 'Debian')
+        else {
+          'url': github_binary_tool.url,
+          'sha256': github_binary_tool.sha256,
+          'type': github_binary_tool.type | default('archive'),
+        }
+      }}
+  tags: always
+
 - name: Ensure install directory exists
   ansible.builtin.file:
     path: "{{ github_binary_dir }}"
@@ -39,9 +61,9 @@
 
 - name: Download release ({{ github_binary_tool.name ~ "-" ~ github_binary_tool.version }})
   ansible.builtin.get_url:
-    url: "{{ github_binary_tool.url | replace('{version}', github_binary_tool.version) }}"
+    url: "{{ github_binary_asset.url | replace('{version}', github_binary_tool.version) }}"
     dest: "{{ github_binary_file }}"
-    checksum: "sha256:{{ github_binary_tool.sha256 }}"
+    checksum: "sha256:{{ github_binary_asset.sha256 }}"
     mode: "0644"
   register: github_binary_download
   tags: always
@@ -56,7 +78,7 @@
 
 - name: Extract .deb ({{ github_binary_tool.name }})
   ansible.builtin.command: "dpkg-deb -x {{ github_binary_file }} {{ github_binary_extract }}"
-  when: github_binary_tool.type == 'deb' and github_binary_download.changed
+  when: github_binary_asset.type == 'deb' and github_binary_download.changed
   changed_when: true
   tags: always
 
@@ -65,7 +87,7 @@
     src: "{{ github_binary_file }}"
     dest: "{{ github_binary_extract }}"
     remote_src: true
-  when: github_binary_tool.type != 'deb' and github_binary_download.changed
+  when: github_binary_asset.type != 'deb' and github_binary_download.changed
   tags: always
 
 - name: Install binaries ({{ github_binary_tool.name }})

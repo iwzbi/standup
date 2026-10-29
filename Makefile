@@ -19,10 +19,13 @@ lint:
 # Build the Linux sandbox image and run the playbook twice + a smoke test
 # inside it (second run must not fail -> idempotency; smoke proves the
 # installed binaries actually execute, not just that they were downloaded).
+# Override the base to exercise the other package-manager path, e.g.
+#   make test BASE_IMAGE=fedora:44
+BASE_IMAGE ?= ubuntu:24.04
 test: test-docker
 
 test-docker:
-	docker build -t standup-test . && \
+	docker build --build-arg BASE_IMAGE=$(BASE_IMAGE) -t standup-test . && \
 	docker run --rm standup-test bash -lc '\
 		ansible-playbook configme.yaml && \
 		echo "--- second run (idempotency check) ---" && \
