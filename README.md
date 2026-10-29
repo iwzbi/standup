@@ -56,7 +56,7 @@ What it installs
 |------|-------|-------|
 | **homebrew** | — | asserts brew is present (install.sh installs it) |
 | **packages** | apt/dnf: zsh, git, tmux, ripgrep, fd-find, autojump, cargo, vim, curl, wget, unzip, lsof, bat, jq, btop, direnv, tree, pipx (same 18 on Debian and RedHat; RedHat splits into a core tier + an EPEL/SPAL-backed optional tier — see `roles/packages/tasks/`) | brew: git, curl, wget, tmux, autojump, ripgrep, fd, bat, jq, btop, direnv, gh |
-| **tools** | sha256-verified GitHub binaries: delta, zoxide, eza, dust, lazydocker, **yazi, glow, atuin, gh**; uv via install script; batcat→bat symlink (Debian only) | brew: git-delta, zoxide, eza, dust, lazydocker, yazi, glow, atuin, gh |
+| **tools** | sha256-verified GitHub binaries: delta, zoxide, eza, dust, lazydocker, **yazi, glow, atuin, gh**; bat/btop only when the distro has no package for them (AL2023); uv via install script; batcat→bat symlink (Debian only) | brew: git-delta, zoxide, eza, dust, lazydocker, yazi, glow, atuin, gh |
 | **mise** | `mise.run` + `mise use -g node@22` (replaces nvm) | same (single code path) |
 | **neovim** | nvim v0.11.0 to `~/.local` (SHA256-verified, no sudo) | brew neovim |
 | **ohmyzsh** | Oh My Zsh + Powerlevel10k + syntax-highlighting + autosuggestions (idempotent git update) | same |
@@ -429,6 +429,10 @@ Moved to [memory/known-issues.md](memory/known-issues.md). Highlights:
 - **bat on Debian/Ubuntu**: the `bat` apt package installs the binary as
   `batcat`; the `tools` role symlinks `~/.local/bin/bat -> /usr/bin/batcat`
   (Fedora ships it as `bat`, so the symlink is a no-op there).
+- **bat/btop where no package exists** (Amazon Linux 2023 has neither in base
+  repos nor SPAL): the `tools` role falls back to the upstream static musl
+  binary, but only when the command is absent — a distro package always wins
+  (`fallback: true` in `vars/versions.yml`).
 - **migrating from nvm with a `~/.npmrc` prefix** (Linux/macOS): a leftover
   `prefix=${HOME}/.npm-global` line (the sudo-free-global pattern from the
   nvm/system-node era) diverts `mise exec -- npm -g` installs — e.g.

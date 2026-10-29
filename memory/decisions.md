@@ -452,7 +452,12 @@ Amazon Linux. The role enables `epel-release` / `spal-release` itself and
 installs the optional tier one package at a time, warning instead of failing
 when a repo can't supply one (AL2023 before release `2023.9.20251117` has no
 SPAL — memory/known-issues.md, 2026-10-29). Users who trade `curl-minimal` for
-`curl` will see dnf erase it — that is the intended swap. Non-RedHat/non-Debian
+`curl` will see dnf erase it — that is the intended swap. Two tools have **no**
+package on AL2023 at all (`bat`, `btop` — absent from both base repos and SPAL),
+and `.zshrc` aliases `cat`/`top` to them, so `github_tools` gained a
+`fallback: true` marker: such a tool installs from its pinned upstream static
+musl build **only** when `command -v` finds nothing, so a distro package always
+wins on every other host. Non-RedHat/non-Debian
 `os_family` values (Suse, Alpine, …) are still unsupported and fail with a
 clear "could not find redhat.yml/debian.yml" from `include_tasks`.
 

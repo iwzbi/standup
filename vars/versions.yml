@@ -48,6 +48,10 @@ lazygit_sha256: "84682f4ad5a449d0a3ffbc8332200fe8651aee9dd91dcd8d87197ba6c2450db
 #             tools — see memory/decisions.md D018.
 #   dest      user (~/.local/bin, no sudo) | system (/usr/local/bin, sudo)
 #   binaries  optional list of binaries to install from the archive (default [name])
+#   fallback  optional true — install ONLY when the tool is not already on PATH.
+#             Used for tools a distro normally provides as a package (bat, btop)
+#             but some dnf distros do not: Amazon Linux 2023 has neither in its
+#             base repos nor in SPAL. Fedora/RHEL/Debian keep the packaged one.
 #   brew      optional Homebrew formula name if it differs from `name`
 #   auto      optional true — safe to auto-bump in the weekly CI. Only low
 #             compat-risk tools get this (zoxide/dust/eza/glow/lazydocker/gh).
@@ -142,3 +146,22 @@ github_tools:
     dest: user
     binaries: [age, age-keygen]
     brew: age
+  # bat / btop: normally distro packages (`packages` role). Some dnf distros
+  # ship neither — Amazon Linux 2023 has them in neither its base repos nor
+  # SPAL — so fall back to the upstream static musl build when the binary is
+  # absent. Everything else keeps the packaged version (`fallback: true`).
+  # Static musl builds run on kernel 2.6.39+, so no glibc concerns.
+  - name: bat
+    version: "0.26.1"
+    sha256: "0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191"
+    url: "https://github.com/sharkdp/bat/releases/download/v{version}/bat-v{version}-x86_64-unknown-linux-musl.tar.gz"
+    type: archive
+    dest: user
+    fallback: true
+  - name: btop
+    version: "1.4.8"
+    sha256: "af589cf82cc9ea9c29ce050b9239a13bef2d1492256d476156e1054a42ce89ad"
+    url: "https://github.com/aristocratos/btop/releases/download/v{version}/btop-x86_64-unknown-linux-musl.tar.gz"
+    type: archive
+    dest: user
+    fallback: true

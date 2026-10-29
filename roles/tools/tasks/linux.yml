@@ -39,7 +39,12 @@
     label: "{{ item.name }} v{{ item.version }}"
   vars:
     github_binary_tool: "{{ item }}"
-  when: "item.version not in tools_github_versions.results[tool_idx].stdout"
+  # Normal tools: install when the discovered version is not the pinned one.
+  # `fallback` tools (bat, btop) are normally distro packages, so install them
+  # ONLY when no binary was found at all — never overwrite the distro's copy.
+  when: >-
+    (item.fallback | default(false) and tools_github_versions.results[tool_idx].stdout == '')
+    or (not (item.fallback | default(false)) and item.version not in tools_github_versions.results[tool_idx].stdout)
   tags: "{{ ['tools'] + (github_tools | map(attribute='name') | list) }}"
 
 - name: Check if uv is installed
