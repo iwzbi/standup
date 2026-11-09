@@ -86,8 +86,8 @@ github_tools:
     dest: user
     auto: true
   - name: dust
-    version: "1.2.6"
-    sha256: "14f788707aad217667f6812cf1a9639bf5c861a2ee815d486cffc36051f5e759"
+    version: "1.2.7"
+    sha256: "ec3bf712c660dcaa5578b996741f5cca36b30c021c1e4b49352b11137a95a96e"
     url: "https://github.com/bootandy/dust/releases/download/v{version}/dust-v{version}-x86_64-unknown-linux-gnu.tar.gz"
     type: archive
     dest: user
@@ -124,13 +124,13 @@ github_tools:
   # the `packages` role installs it via Homebrew (brew name == "gh"); on dnf
   # hosts the upstream tarball is used instead (no dpkg-deb — D018).
   - name: gh
-    version: "2.103.2"
-    sha256: "30463d8e1fdce73f178f76b0082b7ab0657b0740b87274890e831def647ca979"
+    version: "2.103.3"
+    sha256: "e3bafef96328d1a67de3a968bdfe1cc2ffd58cf6aba8b5e201356897ed06bb3d"
     url: "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_amd64.deb"
     type: deb
     alt:
       url: "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_amd64.tar.gz"
-      sha256: "62ccf747115ddc61237efffdde66a3c8f70ba249433dc64f70801089b59c59c8"
+      sha256: "4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d"
       type: archive
     dest: user
     brew: gh
